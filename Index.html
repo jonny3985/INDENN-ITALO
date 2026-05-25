@@ -212,6 +212,11 @@ nav button svg{width:21px;height:21px;stroke:currentColor;fill:none;stroke-width
         <input class="inp inp-mono" type="number" id="f-retrib" placeholder="0.00" min="0" step="0.01"
           oninput="onRetribChange()" style="border-color:var(--teal)">
       </div>
+      <div class="field"><label>Minimo Contrattuale € <span class="badge-auto" style="font-size:8px">AUTO</span></label>
+        <input class="inp inp-mono" type="number" id="f-minimo" placeholder="es. 2037.38" min="0" step="0.01"
+          oninput="onMinimoChange()" style="border-color:var(--teal)">
+        <div style="font-size:9px;color:var(--muted);margin-top:3px">Usato per Riposi Compensativi (÷26)</div>
+      </div>
     </div>
   </div>
 
@@ -520,7 +525,7 @@ const VOCI = [
    type:'select', opts:['','Base','Base+25','Tardiva','Tardiva+25']},
   {id:'gettone',  label:'Gettone Disponibilità',        sub:'€70,00 per chiamata — cod.003301',
    type:'qty', unit:'×', rate:70, step:1},
-  {id:'rip-comp', label:'Riposi Compensativi',          sub:'Gg × ret.giornaliera — cod.000149',
+  {id:'rip-comp', label:'Riposi Compensativi',          sub:'Gg × (minimo ÷ 26) — cod.000149',
    type:'qty', unit:'gg', step:1, note:'rc'},
   {id:'ind-sind', label:'Indennità Sindacale FIT-CISL', sub:'€16,00 / gg — cod.003410',
    type:'qty', unit:'gg', rate:16, step:1},
@@ -722,6 +727,19 @@ function onRetribChange(){
   if(val&&parseFloat(val)>0) localStorage.setItem('indennItalo_retrib',val);
   calcAnteprima();
 }
+function onMinimoChange(){
+  const val=document.getElementById('f-minimo').value;
+  if(val&&parseFloat(val)>0) localStorage.setItem('indennItalo_minimo',val);
+  // aggiorna label sub della voce rip-comp
+  const retG=parseFloat(val)/26;
+  const ripEl=document.getElementById('v-rip-comp');
+  if(ripEl){
+    const parent=ripEl.closest('.voce');
+    const sub=parent?.querySelector('.vs');
+    if(sub&&retG>0) sub.textContent='Gg × '+fmt(retG)+'/gg — cod.000149';
+  }
+  calcAnteprima();
+}
 
 function onOreTot(){
   const dec=hm(document.getElementById('f-tot-hh').value, document.getElementById('f-tot-mm').value);
@@ -746,6 +764,7 @@ function readForm(){
   return {
     turno:   g('f-turno').value,
     retrib:  g('f-retrib').value,
+    minimo:  g('f-minimo')?.value||'',
     oreTot:  hm(g('f-tot-hh').value,  g('f-tot-mm').value),
     oreCond: hm(g('f-cond-hh').value, g('f-cond-mm').value),  // solo contatore
     oreNott: hm(g('f-nott-hh').value, g('f-nott-mm').value),
@@ -832,8 +851,10 @@ function calcola(d){
   // Indennità Zona Disagiata Impianto — €10 fissi
   const indZdis=d.zdis==='SI'?IND_ZONA_DISAGIATA:0;
 
-  // Riposi compensativi (ret.oraria × 7.5h = ret.giornaliera)
-  const ripComp=ro>0?(parseFloat(d.voci?.['rip-comp'])||0)*(ro*7.5):0;
+  // Riposi compensativi: minimo contrattuale ÷ 26 giorni
+  const minimo=parseFloat(d.minimo)||0;
+  const retGiornaliera=minimo>0?minimo/26:0;
+  const ripComp=retGiornaliera>0?(parseFloat(d.voci?.['rip-comp'])||0)*retGiornaliera:0;
 
   // Indennità sindacale
   const indSind=(parseFloat(d.voci?.['ind-sind'])||0)*IND_SIND;
@@ -881,6 +902,8 @@ function salvaBozza(){
   };
   if(d.retrib&&parseFloat(d.retrib)>0)
     localStorage.setItem('indennItalo_retrib',d.retrib);
+  if(d.minimo&&parseFloat(d.minimo)>0)
+    localStorage.setItem('indennItalo_minimo',d.minimo);
   localStorage.setItem('indennItalo_bozza', JSON.stringify(bozza));
   showToast('🟡 Bozza salvata — '+fmt(r.totale));
   updDraftBanner();
@@ -901,6 +924,8 @@ function chiudiGiornata(){
   };
   if(d.retrib&&parseFloat(d.retrib)>0)
     localStorage.setItem('indennItalo_retrib',d.retrib);
+  if(d.minimo&&parseFloat(d.minimo)>0)
+    localStorage.setItem('indennItalo_minimo',d.minimo);
   // Rimuovi bozza
   localStorage.removeItem('indennItalo_bozza');
   // Salva nello storico definitivo
@@ -942,6 +967,10 @@ function caricaBozzaInForm(b){
   // Data e turno
   if(b.data) document.getElementById('f-data').value=b.data;
   if(b.retrib) document.getElementById('f-retrib').value=b.retrib;
+  if(b.minimo){
+    const el=document.getElementById('f-minimo');
+    if(el){el.value=b.minimo;onMinimoChange();}
+  }
   document.getElementById('f-turno').value=b.turno||'L';
   // Ore tot
   const setHM=(hhId,mmId,dec)=>{
@@ -1005,10 +1034,15 @@ function resetForm(){
   document.getElementById('ante').style.display='none';
   document.getElementById('inc-prev').textContent='';
   document.getElementById('cond-prev').textContent='';
-  // riporta retrib automaticamente
+  // riporta retrib e minimo automaticamente
   const saved=localStorage.getItem('indennItalo_retrib');
   if(saved&&parseFloat(saved)>0)
     document.getElementById('f-retrib').value=saved;
+  const savedMin=localStorage.getItem('indennItalo_minimo');
+  if(savedMin&&parseFloat(savedMin)>0){
+    document.getElementById('f-minimo').value=savedMin;
+    onMinimoChange();
+  }
   renderSvc();
   updDraftBanner();
 }
